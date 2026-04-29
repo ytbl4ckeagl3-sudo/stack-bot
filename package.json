@@ -6,6 +6,7 @@
   "main": "index.js",
   "scripts": {
     "start": "node index.js",
+    "postinstall": "node scripts/install-chrome.js",
     "check": "node --check index.js && node --check commands/ping.js && node --check commands/suche.js && node --check commands/hausaufgabe.js && node --check commands/help.js && node --check commands/kill.js && npm test",
     "test": "node --test"
   },
@@ -18,6 +19,7 @@
     "dotenv": "^16.4.7",
     "express": "^4.21.2",
     "groq-sdk": "^0.9.1",
+    "puppeteer": "^24.38.0",
     "qrcode-terminal": "^0.12.0",
     "webuntis": "^2.2.0",
     "whatsapp-web.js": "^1.26.0"

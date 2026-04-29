@@ -3,6 +3,10 @@ require("dotenv").config();
 const express = require("express");
 const fs = require("fs");
 const path = require("path");
+
+process.env.PUPPETEER_CACHE_DIR =
+  process.env.PUPPETEER_CACHE_DIR || path.join(__dirname, ".cache", "puppeteer");
+
 const qrcode = require("qrcode-terminal");
 const { Client, LocalAuth } = require("whatsapp-web.js");
 const { createClient } = require("@supabase/supabase-js");
@@ -673,12 +677,22 @@ async function handleMessage(msg) {
 }
 
 function startWhatsApp() {
+  let executablePath = process.env.PUPPETEER_EXECUTABLE_PATH;
+  if (!executablePath) {
+    try {
+      executablePath = require("puppeteer").executablePath();
+    } catch (err) {
+      console.error("Chrome executablePath fail:", err.message);
+    }
+  }
+
   client = new Client({
     authStrategy: new LocalAuth({
       clientId: "stack",
       dataPath: process.env.WWEBJS_AUTH_DIR || path.join(__dirname, ".wwebjs_auth")
     }),
     puppeteer: {
+      executablePath,
       headless: true,
       args: [
         "--no-sandbox",

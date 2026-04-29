@@ -9,8 +9,10 @@ const root = path.resolve(__dirname, "..");
 test("package.json has required scripts and dependencies", () => {
   const pkg = JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8"));
   assert.equal(pkg.scripts.start, "node index.js");
+  assert.equal(pkg.scripts.postinstall, "node scripts/install-chrome.js");
   assert.match(pkg.scripts.check, /node --check index\.js/);
   assert.ok(pkg.dependencies["@tavily/core"]);
+  assert.ok(pkg.dependencies.puppeteer);
   assert.ok(pkg.dependencies["whatsapp-web.js"]);
   assert.ok(pkg.dependencies["webuntis"]);
 });
