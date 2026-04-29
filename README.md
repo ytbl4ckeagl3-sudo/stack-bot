@@ -38,5 +38,5 @@ WEBUNTIS_LOOKAHEAD_DAYS=30
 WEBUNTIS_TIMEOUT_MS=15000
 ```
 
-4. Deploy starten, Render Logs oeffnen, WhatsApp QR scannen.
+4. Deploy starten, dann `https://DEIN-RENDER-SERVICE.onrender.com/qr.html` oeffnen und WhatsApp QR scannen.
 5. Cron-job.org Jobs anlegen: `/cron/cleanup?key=CRON_SECRET`, `/cron/proactive?key=CRON_SECRET`, optional `/cron/backup?key=CRON_SECRET`.

@@ -104,8 +104,8 @@ WEBUNTIS_TIMEOUT_MS=15000
 ```
 
 11. Deploy klicken.
-12. Logs oeffnen.
-13. QR-Code scannen.
+12. `https://DEIN-RENDER-SERVICE.onrender.com/qr.html` oeffnen.
+13. QR-Code mit WhatsApp scannen.
 14. Test in WhatsApp:
 
 ```text

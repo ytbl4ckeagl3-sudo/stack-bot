@@ -7,7 +7,8 @@ const path = require("path");
 process.env.PUPPETEER_CACHE_DIR =
   process.env.PUPPETEER_CACHE_DIR || path.join(__dirname, ".cache", "puppeteer");
 
-const qrcode = require("qrcode-terminal");
+const terminalQr = require("qrcode-terminal");
+const QRCode = require("qrcode");
 const { Client, LocalAuth } = require("whatsapp-web.js");
 const { createClient } = require("@supabase/supabase-js");
 const Groq = require("groq-sdk");
@@ -73,6 +74,9 @@ app.use(express.json({ limit: "2mb" }));
 let client = null;
 let botReady = false;
 let lastQr = "";
+let lastQrAt = null;
+let whatsappStatus = "booting";
+let lastWhatsappError = "";
 let killed = envBool("KILL_SWITCH", false);
 let commands = [];
 let lastUntisFailNotice = 0;
@@ -578,11 +582,61 @@ app.get("/", (_, res) => {
 });
 
 app.get("/health", (_, res) => {
-  res.json({ ok: true, ready: botReady, ts: new Date().toISOString() });
+  res.json({
+    ok: true,
+    ready: botReady,
+    whatsappStatus,
+    lastWhatsappError: lastWhatsappError || null,
+    ts: new Date().toISOString()
+  });
 });
 
 app.get("/qr", (_, res) => {
-  res.json({ ready: botReady, qr: lastQr || null });
+  res.json({
+    ready: botReady,
+    whatsappStatus,
+    lastWhatsappError: lastWhatsappError || null,
+    qr: lastQr || null,
+    lastQrAt
+  });
+});
+
+app.get("/qr.html", async (_, res) => {
+  res.setHeader("content-type", "text/html; charset=utf-8");
+
+  if (botReady) {
+    res.end(`<!doctype html>
+<html lang="de"><head><meta charset="utf-8"><title>Stack QR</title></head>
+<body style="font-family:Arial,sans-serif;display:grid;place-items:center;min-height:100vh;background:#111;color:#fff">
+<main style="text-align:center"><h1>Stack ist verbunden.</h1><p>WhatsApp ist ready.</p></main>
+</body></html>`);
+    return;
+  }
+
+  if (!lastQr) {
+    res.end(`<!doctype html>
+<html lang="de"><head><meta charset="utf-8"><meta http-equiv="refresh" content="5"><title>Stack QR</title></head>
+<body style="font-family:Arial,sans-serif;display:grid;place-items:center;min-height:100vh;background:#111;color:#fff">
+<main style="max-width:720px;text-align:center">
+<h1>Noch kein QR.</h1>
+<p>Status: ${escapeHtml(whatsappStatus)}</p>
+<p>${escapeHtml(lastWhatsappError || "Seite laedt alle 5 Sekunden neu.")}</p>
+</main>
+</body></html>`);
+    return;
+  }
+
+  const dataUrl = await QRCode.toDataURL(lastQr, { margin: 2, width: 360 });
+  res.end(`<!doctype html>
+<html lang="de"><head><meta charset="utf-8"><meta http-equiv="refresh" content="20"><title>Stack QR</title></head>
+<body style="font-family:Arial,sans-serif;display:grid;place-items:center;min-height:100vh;background:#111;color:#fff">
+<main style="text-align:center">
+<h1>WhatsApp QR scannen</h1>
+<img alt="WhatsApp QR" src="${dataUrl}" style="background:#fff;padding:16px;border-radius:12px">
+<p>WhatsApp -> Geraete verknuepfen -> QR scannen.</p>
+<p>Erzeugt: ${escapeHtml(lastQrAt || "")}</p>
+</main>
+</body></html>`);
 });
 
 app.get("/cron/cleanup", async (req, res) => {
@@ -676,7 +730,17 @@ async function handleMessage(msg) {
   }
 }
 
+function escapeHtml(value) {
+  return String(value || "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
 function startWhatsApp() {
+  whatsappStatus = "starting";
+  lastWhatsappError = "";
   let executablePath = process.env.PUPPETEER_EXECUTABLE_PATH;
   if (!executablePath) {
     try {
@@ -698,29 +762,45 @@ function startWhatsApp() {
         "--no-sandbox",
         "--disable-setuid-sandbox",
         "--disable-dev-shm-usage",
+        "--disable-extensions",
         "--disable-gpu",
+        "--disable-software-rasterizer",
         "--no-first-run",
-        "--no-zygote"
+        "--no-zygote",
+        "--remote-debugging-port=9222"
       ]
     }
   });
 
   client.on("qr", (qr) => {
+    whatsappStatus = "qr";
     lastQr = qr;
+    lastQrAt = new Date().toISOString();
     console.log("QR:");
-    qrcode.generate(qr, { small: true });
+    terminalQr.generate(qr, { small: true });
+    console.log(`QR auch als Seite: ${process.env.RENDER_EXTERNAL_URL || ""}/qr.html`);
   });
 
   client.on("ready", () => {
     botReady = true;
     lastQr = "";
+    whatsappStatus = "ready";
     console.log("Stack ist bereit.");
   });
 
-  client.on("authenticated", () => console.log("WhatsApp authenticated."));
-  client.on("auth_failure", (message) => console.error("WhatsApp auth_failure:", message));
+  client.on("authenticated", () => {
+    whatsappStatus = "authenticated";
+    console.log("WhatsApp authenticated.");
+  });
+  client.on("auth_failure", (message) => {
+    whatsappStatus = "auth_failure";
+    lastWhatsappError = String(message || "auth_failure");
+    console.error("WhatsApp auth_failure:", message);
+  });
   client.on("disconnected", (reason) => {
     botReady = false;
+    whatsappStatus = "disconnected";
+    lastWhatsappError = String(reason || "disconnected");
     console.error("WhatsApp disconnected:", reason);
   });
 
@@ -733,7 +813,12 @@ function startWhatsApp() {
     });
   });
 
-  client.initialize();
+  client.initialize().catch((err) => {
+    botReady = false;
+    whatsappStatus = "init_failed";
+    lastWhatsappError = err && err.stack ? err.stack : String(err);
+    console.error("WhatsApp initialize fail:", lastWhatsappError);
+  });
 }
 
 loadCommands();

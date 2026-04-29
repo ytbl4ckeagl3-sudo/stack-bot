@@ -13,6 +13,7 @@ test("package.json has required scripts and dependencies", () => {
   assert.match(pkg.scripts.check, /node --check index\.js/);
   assert.ok(pkg.dependencies["@tavily/core"]);
   assert.ok(pkg.dependencies.puppeteer);
+  assert.ok(pkg.dependencies.qrcode);
   assert.ok(pkg.dependencies["whatsapp-web.js"]);
   assert.ok(pkg.dependencies["webuntis"]);
 });
@@ -34,6 +35,7 @@ test("typo-tolerant Stack prefix is present", () => {
   assert.match(index, /Stack\|Stak\|Stacck\|Stakk/);
   assert.match(index, /Antworte IMMER auf Deutsch/);
   assert.match(index, /GROQ_VISION_MODEL/);
+  assert.match(index, /\/qr\.html/);
 });
 
 test("supabase schema contains memory expiry and homework table", () => {
