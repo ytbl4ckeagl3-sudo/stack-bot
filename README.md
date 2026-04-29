@@ -1,0 +1,25 @@
+{
+  "name": "stack-whatsapp-bot",
+  "version": "3.1.0",
+  "private": true,
+  "description": "Stack WhatsApp Bot fuer Render Free",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "check": "node --check index.js && node --check commands/ping.js && node --check commands/suche.js && node --check commands/hausaufgabe.js && node --check commands/help.js && node --check commands/kill.js && npm test",
+    "test": "node --test"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.49.4",
+    "@tavily/core": "^0.5.4",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "groq-sdk": "^0.9.1",
+    "qrcode-terminal": "^0.12.0",
+    "webuntis": "^2.2.0",
+    "whatsapp-web.js": "^1.26.0"
+  }
+}
