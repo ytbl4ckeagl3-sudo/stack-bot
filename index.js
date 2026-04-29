@@ -77,6 +77,8 @@ let lastQr = "";
 let lastQrAt = null;
 let whatsappStatus = "booting";
 let lastWhatsappError = "";
+let whatsappRestartTimer = null;
+let whatsappRunId = 0;
 let killed = envBool("KILL_SWITCH", false);
 let commands = [];
 let lastUntisFailNotice = 0;
@@ -639,6 +641,47 @@ app.get("/qr.html", async (_, res) => {
 </body></html>`);
 });
 
+function webVersionCacheOptions() {
+  const type = process.env.WWEBJS_WEB_CACHE_TYPE || "remote";
+  if (type === "none") return { type: "none" };
+  if (type === "local") {
+    return {
+      type: "local",
+      path: process.env.WWEBJS_WEB_CACHE_PATH || path.join(__dirname, ".wwebjs_cache"),
+      strict: false
+    };
+  }
+  return {
+    type: "remote",
+    remotePath:
+      process.env.WWEBJS_WEB_CACHE_REMOTE_PATH ||
+      "https://raw.githubusercontent.com/wppconnect-team/wa-version/main/html/{version}.html",
+    strict: false
+  };
+}
+
+function scheduleWhatsAppRestart(reason, runId) {
+  if (runId !== whatsappRunId || whatsappRestartTimer) return;
+  whatsappStatus = "restarting";
+  lastWhatsappError = reason;
+  console.error(`WhatsApp restart geplant: ${reason}`);
+
+  whatsappRestartTimer = setTimeout(async () => {
+    whatsappRestartTimer = null;
+    try {
+      if (client) await client.destroy();
+    } catch (err) {
+      console.error("WhatsApp destroy before restart fail:", err.message);
+    }
+    client = null;
+    botReady = false;
+    lastQr = "";
+    startWhatsApp();
+  }, Number(process.env.WWEBJS_RESTART_DELAY_MS || 15000));
+
+  whatsappRestartTimer.unref?.();
+}
+
 app.get("/cron/cleanup", async (req, res) => {
   if (!hasCronAccess(req)) return res.status(401).json({ ok: false });
   try {
@@ -739,6 +782,7 @@ function escapeHtml(value) {
 }
 
 function startWhatsApp() {
+  const runId = ++whatsappRunId;
   whatsappStatus = "starting";
   lastWhatsappError = "";
   let executablePath = process.env.PUPPETEER_EXECUTABLE_PATH;
@@ -750,11 +794,16 @@ function startWhatsApp() {
     }
   }
 
-  client = new Client({
+  const options = {
     authStrategy: new LocalAuth({
       clientId: "stack",
       dataPath: process.env.WWEBJS_AUTH_DIR || path.join(__dirname, ".wwebjs_auth")
     }),
+    authTimeoutMs: Number(process.env.WWEBJS_AUTH_TIMEOUT_MS || 60000),
+    qrMaxRetries: Number(process.env.WWEBJS_QR_MAX_RETRIES || 0),
+    takeoverOnConflict: true,
+    takeoverTimeoutMs: Number(process.env.WWEBJS_TAKEOVER_TIMEOUT_MS || 0),
+    webVersionCache: webVersionCacheOptions(),
     puppeteer: {
       executablePath,
       headless: true,
@@ -770,9 +819,24 @@ function startWhatsApp() {
         "--remote-debugging-port=9222"
       ]
     }
-  });
+  };
+
+  if (process.env.WWEBJS_WEB_VERSION) options.webVersion = process.env.WWEBJS_WEB_VERSION;
+
+  client = new Client(options);
+
+  const initTimeoutMs = Number(process.env.WWEBJS_INIT_TIMEOUT_MS || 90000);
+  const initWatchdog = setTimeout(() => {
+    if (runId !== whatsappRunId || botReady || lastQr) return;
+    scheduleWhatsAppRestart(
+      `WhatsApp Initialisierung haengt seit ${Math.round(initTimeoutMs / 1000)}s ohne QR.`,
+      runId
+    );
+  }, initTimeoutMs);
+  initWatchdog.unref?.();
 
   client.on("qr", (qr) => {
+    clearTimeout(initWatchdog);
     whatsappStatus = "qr";
     lastQr = qr;
     lastQrAt = new Date().toISOString();
@@ -782,10 +846,21 @@ function startWhatsApp() {
   });
 
   client.on("ready", () => {
+    clearTimeout(initWatchdog);
     botReady = true;
     lastQr = "";
     whatsappStatus = "ready";
     console.log("Stack ist bereit.");
+  });
+
+  client.on("loading_screen", (percent, message) => {
+    whatsappStatus = `loading ${percent}%`;
+    console.log(`WhatsApp loading ${percent}% ${message || ""}`.trim());
+  });
+
+  client.on("change_state", (state) => {
+    whatsappStatus = `state ${state}`;
+    console.log("WhatsApp state:", state);
   });
 
   client.on("authenticated", () => {
@@ -814,10 +889,13 @@ function startWhatsApp() {
   });
 
   client.initialize().catch((err) => {
+    clearTimeout(initWatchdog);
+    if (runId !== whatsappRunId) return;
     botReady = false;
     whatsappStatus = "init_failed";
     lastWhatsappError = err && err.stack ? err.stack : String(err);
     console.error("WhatsApp initialize fail:", lastWhatsappError);
+    scheduleWhatsAppRestart(lastWhatsappError, runId);
   });
 }
 
